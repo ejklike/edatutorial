@@ -15,6 +15,12 @@
   - beautiful soup
   - newspaper3k
 
+3. Data Exploration
+  - pandas
+  - konlpy
+  - kiwipiepy
+
+4. 
 
 # References
 
