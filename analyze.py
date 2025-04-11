@@ -10,99 +10,19 @@ import ast
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer, TfidfTransformer
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, accuracy_score
 from sklearn.linear_model import LogisticRegression
 
-from konlpy.tag import Okt
-from kiwipiepy import Kiwi
 
 
-# 각 프로세스에서 개별적으로 Kiwi 인스턴스 생성
-def extract_nouns_batch(text_batch):
-    kiwi = Kiwi()  # 프로세스마다 Kiwi 생성 (초기화 1회)
-    tokens_batch = [kiwi.tokenize(text, normalize_coda=False, saisiot=False) 
-                    for text in text_batch]
-    return [[x.form for x in tokens if x.tag[0] == 'N'] for tokens in tokens_batch]
-
-
-synonym_dict = {
-    '국민의힘': '국힘',
-    '더불어민주당': '민주당',
-    '이재명대표': '이재명',
-    # '국민의 힘': '국힘',
-    # '더불어 민주당': '민주당',
-    # '이재명 대표': '이재명',
-}
-
-stop_list = ['기자', '저작권', '본문', '기사', '뉴스', '제공',
+stop_list = ['기자', '저작권', '본문', '기사', '뉴스', '제공', '전재', '배포', '때문',
              # 이재명
              '이재명', '대표', '재명이', '민주당', '더불어민주당',
              # 윤석열
-             '윤석열', '대통령', '국힘', '국민의힘']
+             '윤석열', '대통령', '국힘', '국민의힘', '국민']
 
-
-def get_df_noun_extracted():
-    # data loading
-    df1 = pd.read_csv('./data/lee_all.csv', sep=',', quoting=1)
-    df1['label'] = '이재명'
-    df2 = pd.read_csv('./data/yoon_all.csv', sep=',', quoting=1)
-    df2['label'] = '윤석열'
-    df = pd.concat([df1, df2], axis=0).reset_index(drop=True)
-    
-    # remove duplicates
-    df = df.drop_duplicates('url', keep='first')
-    
-    # remove nan news
-    df = df.dropna(subset='text')
-    
-    # remove short news
-    df = df[df.text.str.len() > 100]
-
-    # remove news not relevant to candidates
-    df = df[df.text.str.contains('윤석열') | df.text.str.contains('이재명')]
-
-    # # preprocess synonyms
-    # for i, row in df.iterrows():
-    #     text = row.text
-    #     for k, v in synonym_dict.items():
-    #         text = text.replace(k, v)
-    #     df.loc[i, 'text'] = text
-    
-    # noun extraction --- Okt
-    # okt = Okt()
-    # news_noun_list = []
-    # for c in df['text']:
-    #     news_noun_list.append(okt.nouns(c))
-
-    # noun extraction --- Kiwi
-    # (1) 병렬 미사용
-    # news_noun_list = []
-    # kiwi = Kiwi()
-    # for c in tqdm(df['text']):
-    #     tokens = kiwi.tokenize(text, normalize_coda=False, saisiot=False)
-    #     nouns = [x.form for x in tokens if x.tag[0] == 'N']
-    #     news_noun_list.append(nouns)
-
-    # (2) 병렬 처리
-    # news_noun_list = extract_nouns_batch_process(df['text'].tolist())
-    df_texts = df['text'].tolist()
-    BATCH_SIZE = min(1000, len(df_texts) // os.cpu_count() + 1)
-
-    # 입력 데이터를 배치 단위로 나누기
-    batches = [df_texts[i:i + BATCH_SIZE] for i in range(0, len(df_texts), BATCH_SIZE)]
-
-    # 병렬 처리
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        results = list(tqdm(executor.map(extract_nouns_batch, batches), total=len(batches)))
-
-    # 결과 병합
-    news_noun_list = [item for sublist in results for item in sublist]
-
-    # df 에 noun_list 추가
-    df['nouns'] = news_noun_list
-    df.to_csv('./data/df_all_preprocessed_noun.csv', sep=',', quoting=1, index=False)
-
-    return df
+synonym_dict = dict()
 
 
 def get_y(cand):
@@ -119,26 +39,25 @@ def printf_list(num_feature, feature_score, feature_name):
 
 if __name__ == '__main__':
 
+    MIN_COUNT = 30
+
     # data loading
-    if os.path.exists('./data/df_all_preprocessed_noun.csv'):
-        df = pd.read_csv('./data/df_all_preprocessed_noun.csv', sep=',', quoting=1)
-        df['nouns'] = df['nouns'].apply(lambda x: ast.literal_eval(x))
-    else:
-        df = get_df_noun_extracted()
+    df = pd.read_csv('./data/df_all_preprocessed_noun.csv', sep=',', quoting=1)
+    df['nouns'] = df['nouns'].apply(lambda x: ast.literal_eval(x))
     print("Length of df: ", len(df))
 
-    news_noun_list = df['nouns'].tolist()
-    print('len(news_noun_list)', len(news_noun_list))
-
+    
     # input features
+    news_noun_list = df['nouns'].tolist()
     all_nouns = chain(*news_noun_list)
-    word_counts = sorted(Counter(all_nouns).items(), key=lambda x: x[1], reverse=True)
-    # print(word_counts[:30])
+    word_counts = sorted(Counter(all_nouns).items(), 
+                         key=lambda x: x[1], 
+                         reverse=True)
     feature_list = [
         word for word, count in word_counts
-        if count > 30 and len(word) > 1 and word not in stop_list
+        if count > MIN_COUNT and len(word) > 1 and word not in stop_list
     ]
-    print('Feature list length: ', len(feature_list))
+    print('Input feature list length: ', len(feature_list))
 
     # tf array
     news_count_list = [Counter(news_noun) for news_noun in news_noun_list]
@@ -147,20 +66,20 @@ if __name__ == '__main__':
         columns=feature_list)
     
     tf = tf.astype(np.float32)
-    print(tf.shape)
+    print('TF array shape:', tf.shape)
     
     # synonym preprocessing
     for k, v in synonym_dict.items():
         if k in feature_list and v in feature_list:
-            print('merging {} and {}'.format(k, v))
+            print('merging feature {} to {}'.format(k, v))
             tf[v] = tf[v] + tf[k]
             del tf[k]
 
-    print(tf.shape)
+    print('tf shape:', tf.shape)
 
     # add press tokens
     press_df = df['press'].value_counts().sort_values(ascending=False)
-    press_df = press_df[press_df > 30]
+    press_df = press_df[press_df > MIN_COUNT]
     press_dict = dict()
     for p in press_df.index:
         feature = 'p_' + p
@@ -173,25 +92,44 @@ if __name__ == '__main__':
             feature_list.remove(p)
     tf = pd.concat([tf, pd.DataFrame(press_dict)], axis=1)
     feature_list = list(tf.columns)
+    print('after adding press tokens...')
     print('Feature list length: ', len(feature_list))
-
-    print(tf.shape)
+    print('tf shape:', tf.shape)
 
     # tf-idf array
     transformer = TfidfTransformer()
     tfidf = transformer.fit_transform(tf.values)
+    
+    # dataset
+    cand = '이재명' # positive class
     X = tfidf.toarray()
+    y = get_y(cand)
+
+    # train-test split
+    X_train, X_test, y_train, y_test = \
+        train_test_split(X, y, test_size=0.2, random_state=42)
+    print('train-test split done')
+    print('X_train shape:', X_train.shape)
+    print('y_train shape:', y_train.shape)
+    print('X_test shape:', X_test.shape)
+    print('y_test shape:', y_test.shape)
+
     
     # logistic regression
-    cand = '이재명' # positive class
-    y = get_y(cand)
-    clf = LogisticRegression(penalty='l1', C=10.0, solver='liblinear')
-    clf.fit(X, y)
+    clf = LogisticRegression(penalty='l2', C=10.0, solver='liblinear')
+    clf.fit(X_train, y_train)
     
-    y_score = clf.predict_proba(X)[:, 1]
-    yhat = clf.predict(X)
-    print(f'Accuracy : {accuracy_score(y, yhat)}')
-    print(f'AUC score: {roc_auc_score(y, y_score)}')
+    y_train_score = clf.predict_proba(X_train)[:, 1]
+    yhat_train = clf.predict(X_train)
+    print('Train data results:')
+    print(f'Accuracy : {accuracy_score(y_train, yhat_train)}')
+    print(f'AUC score: {roc_auc_score(y_train, y_train_score)}')
+
+    y_test_score = clf.predict_proba(X_test)[:, 1]
+    yhat_test = clf.predict(X_test)
+    print('Test data results:')
+    print(f'Accuracy : {accuracy_score(y_test, yhat_test)}')
+    print(f'AUC score: {roc_auc_score(y_test, y_test_score)}')
     
     coeff_values = clf.coef_[0]    
     sorted_words = sorted(zip(feature_list, coeff_values), key=lambda x: x[1])
