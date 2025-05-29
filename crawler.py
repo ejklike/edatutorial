@@ -77,18 +77,19 @@ def get_news_list(keyword, ds, de, n_scroll=3,
     url_list = []
     press_list = []
 
-    press_elements = driver.find_elements(
-        'css selector', 
-        'a.info.press')
     title_elements = driver.find_elements(
         'css selector', 
-        'a.news_tit')
+        'div.sds-comps-vertical-layout.sds-comps-full-layout > div.sds-comps-base-layout.sds-comps-full-layout > div.sds-comps-vertical-layout.sds-comps-full-layout > a:first-of-type')
+    press_elements = driver.find_elements(
+        'css selector', 
+        'div.sds-comps-vertical-layout.sds-comps-full-layout > div.sds-comps-horizontal-layout.sds-comps-full-layout.sds-comps-profile.type-basic.size-lg.title-color-g10 > div.sds-comps-horizontal-layout.sds-comps-inline-layout.sds-comps-profile-source > div.sds-comps-horizontal-layout.sds-comps-inline-layout.sds-comps-profile-info > div.sds-comps-horizontal-layout.sds-comps-inline-layout.sds-comps-profile-info-title > span.sds-comps-text.sds-comps-text-ellipsis-1.sds-comps-text-type-body2.sds-comps-text-weight-sm.sds-comps-profile-info-title-text')
+
 
     for title_el, press_el in zip(title_elements,
                                 press_elements):
         title = title_el.text
         url = title_el.get_attribute('href')
-        press = press_el.text.replace('언론사 선정', '')
+        press = press_el.text
         title_list.append(title)
         url_list.append(url)
         press_list.append(press)
@@ -139,45 +140,69 @@ if __name__ == '__main__':
 
     if not os.path.exists('./data'):
         os.makedirs('./data')
+
+    keyword = '이재명'
+    ds = '2025.05.29'
+    de = '2025.05.29'
+    n_scroll = 1
     
+    
+    df = get_news_list(keyword, ds, de, n_scroll=n_scroll, 
+                       headless=True, verbose=True)
+
+    text_list, datetime_list = \
+        get_news_contents(df['url'].tolist(), verbose=True)
+
+    df['datetime'] = datetime_list
+    df['text'] = text_list
+    print(f'Data Length: {len(df)}')
+
+    # 저장
+    df.to_csv(outfname.format(ds), 
+            quoting=1, 
+            encoding='utf-8',
+            index=False)
+
+    print('\n\n\n\n')
+
     # ds = '2025.01.01'
     # de = '2025.03.31'
-    n_scroll = 11
+    # n_scroll = 11
     
-    if sys.argv[1] == '윤':
-        # input
-        keyword = '윤석열'
-        outfname = './data/yoon_{}.csv'
-    if sys.argv[1] == '이':
-        # input
-        keyword = '이재명'
-        outfname = './data/lee_{}.csv'
+    # if sys.argv[1] == '윤':
+    #     # input
+    #     keyword = '윤석열'
+    #     outfname = './data/yoon_{}.csv'
+    # if sys.argv[1] == '이':
+    #     # input
+    #     keyword = '이재명'
+    #     outfname = './data/lee_{}.csv'
 
-    for m in range(1, 4):
-        for d in range(1, 32):
-            ds = de = f'2025.{m:02d}.{d:02d}'
-            # 날짜 유효성 검사
-            try:
-                validate(ds.replace('.', '-'))
-                print(f'Valid date: {ds}')
-            except ValueError:
-                print(f'Invalid date: {ds}')
-                continue
+    # for m in range(1, 4):
+    #     for d in range(1, 32):
+    #         ds = de = f'2025.{m:02d}.{d:02d}'
+    #         # 날짜 유효성 검사
+    #         try:
+    #             validate(ds.replace('.', '-'))
+    #             print(f'Valid date: {ds}')
+    #         except ValueError:
+    #             print(f'Invalid date: {ds}')
+    #             continue
             
-            df = get_news_list(keyword, ds, de, n_scroll=n_scroll, 
-                               headless=True, verbose=True)
+    #         df = get_news_list(keyword, ds, de, n_scroll=n_scroll, 
+    #                            headless=True, verbose=True)
 
-            text_list, datetime_list = \
-                get_news_contents(df['url'].tolist(), verbose=True)
+    #         text_list, datetime_list = \
+    #             get_news_contents(df['url'].tolist(), verbose=True)
 
-            df['datetime'] = datetime_list
-            df['text'] = text_list
-            print(f'Data Length: {len(df)}')
+    #         df['datetime'] = datetime_list
+    #         df['text'] = text_list
+    #         print(f'Data Length: {len(df)}')
 
-            # 저장
-            df.to_csv(outfname.format(ds), 
-                    quoting=1, 
-                    encoding='utf-8',
-                    index=False)
+    #         # 저장
+    #         df.to_csv(outfname.format(ds), 
+    #                 quoting=1, 
+    #                 encoding='utf-8',
+    #                 index=False)
         
-            print('\n\n\n\n')
+    #         print('\n\n\n\n')
